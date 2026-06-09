@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { initDb } from './src/db/client';
+import { useFocusStore } from './src/stores/focusStore';
 import HomeScreen from './src/screens/HomeScreen';
 import FocusScreen from './src/screens/FocusScreen';
 import SyllabusScreen from './src/screens/SyllabusScreen';
@@ -14,12 +15,14 @@ const Tab = createBottomTabNavigator();
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const recoverSession = useFocusStore((s) => s.recoverSession);
 
   useEffect(() => {
     initDb()
+      .then(() => recoverSession()) // check for crashed/abandoned sessions
       .then(() => setDbReady(true))
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [recoverSession]);
 
   if (error) {
     return (
@@ -32,8 +35,8 @@ export default function App() {
   if (!dbReady) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" />
-        <Text>Initializing database…</Text>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Initializing…</Text>
       </View>
     );
   }
@@ -51,35 +54,30 @@ export default function App() {
               borderTopWidth: 1,
               borderTopColor: '#e0e0e0',
             },
+            headerStyle: { backgroundColor: '#6C63FF' },
+            headerTintColor: '#FFFFFF',
+            headerTitleStyle: { fontWeight: '700' },
           }}
         >
           <Tab.Screen
             name="Home"
             component={HomeScreen}
-            options={{
-              tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🏠</Text>,
-            }}
+            options={{ tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🏠</Text> }}
           />
           <Tab.Screen
             name="Focus"
             component={FocusScreen}
-            options={{
-              tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>⏱️</Text>,
-            }}
+            options={{ tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>⏱️</Text> }}
           />
           <Tab.Screen
             name="Syllabus"
             component={SyllabusScreen}
-            options={{
-              tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📚</Text>,
-            }}
+            options={{ tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📚</Text> }}
           />
           <Tab.Screen
             name="Dev Panel"
             component={DevPanelScreen}
-            options={{
-              tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🔧</Text>,
-            }}
+            options={{ tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🔧</Text> }}
           />
         </Tab.Navigator>
       </NavigationContainer>
@@ -90,4 +88,5 @@ export default function App() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   error: { color: 'red', fontSize: 14, textAlign: 'center', padding: 20 },
+  loadingText: { fontSize: 14, color: '#6B7280' },
 });
