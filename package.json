@@ -1,0 +1,10 @@
+{
+  "name": "alcovia-sync",
+  "private": true,
+  "workspaces": ["apps/mobile", "server", "packages/shared"],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=server",
+    "dev:app": "npm run start --workspace=apps/mobile",
+    "lint": "eslint . --ext .ts,.tsx"
+  }
+}
