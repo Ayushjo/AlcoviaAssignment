@@ -81,6 +81,12 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       await syncEngine.sync();
       setSyncStatus('success');
       await refreshPendingOpsCount();
+
+      // Refresh stores that depend on server-canonical data
+      const { useFocusStore } = await import('./focusStore');
+      const { useSyllabusStore } = await import('./syllabusStore');
+      await useFocusStore.getState().loadRewards();
+      await useSyllabusStore.getState().refreshAfterSync();
     } catch (_err) {
       setSyncStatus('error');
     }

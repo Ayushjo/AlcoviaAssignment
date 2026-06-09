@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { TASK_DEFINITIONS } from '@alcovia/shared';
-import { getDb } from '../db/client';
-import { STUDENT_ID } from '../constants';
+import { getDb, incrementAndGetLamportClock } from '../db/client';
+import { STUDENT_ID, getDeviceId } from '../constants';
+import { syncEngine } from '../sync/engine';
 import type { TaskStatus, SubjectProgress, ChapterProgress } from '../sync/types';
 
 export interface TaskRow {
@@ -14,6 +15,7 @@ export interface TaskRow {
   status: TaskStatus;
   lamportClock: number;
   deviceId: string;
+  synced: boolean;
 }
 
 interface SyllabusStore {
@@ -22,9 +24,14 @@ interface SyllabusStore {
   isLoading: boolean;
 
   loadTasks: () => Promise<void>;
-  setTaskStatus: (taskId: string, status: TaskStatus) => void;
+  updateTaskStatus: (taskId: string, newStatus: TaskStatus) => Promise<void>;
+  refreshAfterSync: () => Promise<void>;
 }
 
+// ── Progress rollup ───────────────────────────────────────────────────────────
+// chapter % = done / total tasks
+// subject % = average of its chapter percents
+// Both are computed in pure JS so they update instantly offline.
 function computeProgress(tasks: TaskRow[]): SubjectProgress[] {
   const subjectMap = new Map<string, SubjectProgress>();
 
@@ -47,7 +54,7 @@ function computeProgress(tasks: TaskRow[]): SubjectProgress[] {
         totalTasks: 0,
         completedTasks: 0,
         percent: 0,
-      };
+      } as ChapterProgress;
       subject.chapters.push(chapter);
     }
 
@@ -63,8 +70,7 @@ function computeProgress(tasks: TaskRow[]): SubjectProgress[] {
     subject.percent =
       subject.chapters.length > 0
         ? Math.round(
-            subject.chapters.reduce((sum, c) => sum + c.percent, 0) /
-              subject.chapters.length
+            subject.chapters.reduce((sum, c) => sum + c.percent, 0) / subject.chapters.length
           )
         : 0;
   }
@@ -86,8 +92,9 @@ export const useSyllabusStore = create<SyllabusStore>((set, get) => ({
         status: string;
         lamport_clock: number;
         device_id: string;
+        synced: number;
       }>(
-        `SELECT task_id, status, lamport_clock, device_id
+        `SELECT task_id, status, lamport_clock, device_id, synced
          FROM task_states WHERE student_id = ?`,
         [STUDENT_ID]
       );
@@ -106,6 +113,7 @@ export const useSyllabusStore = create<SyllabusStore>((set, get) => ({
           status: (row?.status ?? 'not_started') as TaskStatus,
           lamportClock: row?.lamport_clock ?? 0,
           deviceId: row?.device_id ?? '',
+          synced: (row?.synced ?? 0) === 1,
         };
       });
 
@@ -115,10 +123,55 @@ export const useSyllabusStore = create<SyllabusStore>((set, get) => ({
     }
   },
 
-  setTaskStatus: (taskId, status) => {
+  /**
+   * Cycle a task's status, persist to SQLite with a new Lamport clock, and
+   * enqueue a sync op. The UI updates instantly (offline-first).
+   *
+   * Order of operations matters:
+   *   1. Increment Lamport clock (so this write is ordered after all prior local ops)
+   *   2. Update task_states in SQLite with the new clock
+   *   3. Enqueue a pending op (engine uses the same clock value)
+   *   4. Update Zustand state so the UI re-renders immediately
+   */
+  updateTaskStatus: async (taskId: string, newStatus: TaskStatus) => {
+    const db = getDb();
+    const deviceId = getDeviceId();
+
+    // 1. Claim the next Lamport clock value
+    const lamportClock = await incrementAndGetLamportClock();
+
+    // 2. Persist to SQLite
+    await db.runAsync(
+      `UPDATE task_states
+       SET status = ?, lamport_clock = ?, device_id = ?, synced = 0
+       WHERE task_id = ? AND student_id = ?`,
+      [newStatus, lamportClock, deviceId, taskId, STUDENT_ID]
+    );
+
+    // 3. Enqueue sync op (the engine will include it in the next POST /api/sync)
+    await syncEngine.enqueueOp({
+      type: 'TASK_STATUS',
+      entityId: taskId,
+      payload: {
+        taskId,
+        status: newStatus,
+      },
+    });
+
+    // 4. Optimistic store update — instant UI reflect
     const updated = get().tasks.map((t) =>
-      t.taskId === taskId ? { ...t, status } : t
+      t.taskId === taskId
+        ? { ...t, status: newStatus, lamportClock, deviceId, synced: false }
+        : t
     );
     set({ tasks: updated, subjects: computeProgress(updated) });
+
+    // Background sync (best-effort; failure is fine)
+    syncEngine.sync().catch(() => {});
+  },
+
+  // Called after a successful sync so the store reflects any remote changes
+  refreshAfterSync: async () => {
+    await get().loadTasks();
   },
 }));
