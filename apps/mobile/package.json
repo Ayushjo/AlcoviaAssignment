@@ -7,6 +7,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "build:web": "expo export --platform web",
+    "serve:web": "node serve-web.js",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {

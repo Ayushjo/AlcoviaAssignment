@@ -5,6 +5,8 @@
   "scripts": {
     "dev:server": "npm run dev --workspace=server",
     "dev:app": "npm run start --workspace=apps/mobile",
+    "build:web": "npm run build:web --workspace=apps/mobile",
+    "serve:web": "node apps/mobile/serve-web.js",
     "lint": "eslint . --ext .ts,.tsx",
     "fuzz": "npx tsx tools/fuzz.ts"
   }

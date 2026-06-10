@@ -58,19 +58,34 @@ npx n8n
 
 **Optional: n8n-first prototype workflow** — also import `n8n-reward-prototype.json` to see the reward rule implemented in n8n before it was migrated into Express.
 
-### 3. Launch the app (two devices)
+### 3. Build and serve the web app (two devices)
+
+expo-sqlite's WASM backend (wa-sqlite) requires `SharedArrayBuffer`, which is only available
+when the page is served with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`. The Metro dev server cannot add these headers to
+the initial HTML page, so we build once and serve with a tiny custom server that controls every
+response header.
 
 ```bash
-npm run dev:app
-# → Expo web at http://localhost:8081
+# Step 1 — build the web bundle (takes ~30 s, run from repo root)
+npm run build:web
+
+# Step 2 — serve with COOP/COEP headers on port 8083
+npm run serve:web
+# ✓  Device A → http://localhost:8083?device=A
+# ✓  Device B → http://localhost:8083?device=B
 ```
 
-Open two browser tabs (or incognito + regular) at:
-- `http://localhost:8081?device=A`
-- `http://localhost:8081?device=B`
-- `http://localhost:8081?device=C` (optional third device)
+Open two browser tabs (regular + incognito, or two different browser profiles) at:
+- `http://localhost:8083?device=A`
+- `http://localhost:8083?device=B`
+- `http://localhost:8083?device=C` (optional third device)
 
 Each tab has its own isolated SQLite database. They simulate separate physical devices.
+
+> **After any code change** you must re-run `npm run build:web` and hard-reload the tabs.
+> This is a trade-off for the demo: you get proper SharedArrayBuffer in any browser without
+> flags, incognito tricks, or proxy setup.
 
 ---
 
