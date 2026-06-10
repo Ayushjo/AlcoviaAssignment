@@ -5,6 +5,7 @@ import { initServerDb } from './db/schema';
 import { seedDatabase } from './db/seed';
 import syncRouter from './routes/sync';
 import sessionsRouter from './routes/sessions';
+import notificationsRouter from './routes/notifications';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.get('/api/tasks', (_req, res) => {
 
 app.use('/api/sync', syncRouter);
 app.use('/api/sessions', sessionsRouter);
+app.use('/api/notifications', notificationsRouter);
 
 const PORT = process.env.PORT ?? 3001;
 app.listen(PORT, () => {

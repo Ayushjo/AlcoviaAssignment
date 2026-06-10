@@ -78,6 +78,13 @@ export function initServerDb(): void {
       payload TEXT NOT NULL,
       fired_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS sink_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      student_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      received_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   console.log('Database initialized at', DB_PATH);
 }

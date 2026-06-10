@@ -1,0 +1,123 @@
+{
+  "name": "Alcovia Focus Session Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "focus-success",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "alcovia-focus-success"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": true, \"received\": true}",
+        "options": {}
+      },
+      "id": "node-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Layer 2 dedup (n8n-side) ──────────────────────────────────────────────\n// Layer 1 is on the server (notification_sent flag). This layer catches the\n// edge case where the server crashed after firing the webhook but before\n// persisting notification_sent=1, so it retried — we must not deliver twice.\n\nconst sessionId = $input.first().json.body?.sessionId ?? $input.first().json.sessionId;\n\nif (!sessionId) {\n  throw new Error('Missing sessionId in webhook payload');\n}\n\n// Static workflow data persists across executions (stored in n8n SQLite)\nconst state = $getWorkflowStaticData('global');\nif (!state.processedSessions) state.processedSessions = {};\n\nif (state.processedSessions[sessionId]) {\n  // Already processed — return empty to stop execution\n  console.log('[dedup] Session already processed, skipping:', sessionId);\n  return [];\n}\n\n// Pass through with the original payload\nreturn [{ json: $input.first().json.body ?? $input.first().json }];\n"
+      },
+      "id": "node-dedup-check",
+      "name": "Dedup Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:3001/api/notifications/sink",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "node-send-notification",
+      "name": "Send Notification (Mock Sink)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:3001/api/sessions/{{ $json.sessionId }}/mark-notified",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-mark-notified",
+      "name": "Mark Notified on Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark this sessionId as processed so future replays are skipped (Layer 2 dedup)\nconst sessionId = $('Dedup Check').first().json.sessionId;\n\nconst state = $getWorkflowStaticData('global');\nif (!state.processedSessions) state.processedSessions = {};\nstate.processedSessions[sessionId] = Date.now();\n\nconsole.log('[dedup] Marked as processed:', sessionId);\nreturn [{ json: { ok: true, markedDone: sessionId } }];\n"
+      },
+      "id": "node-mark-done",
+      "name": "Mark Done in Static Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Respond to Webhook", "type": "main", "index": 0 }],
+        [{ "node": "Dedup Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dedup Check": {
+      "main": [
+        [{ "node": "Send Notification (Mock Sink)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Notification (Mock Sink)": {
+      "main": [
+        [{ "node": "Mark Notified on Backend", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Notified on Backend": {
+      "main": [
+        [{ "node": "Mark Done in Static Data", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "alcovia-focus-workflow",
+  "tags": []
+}

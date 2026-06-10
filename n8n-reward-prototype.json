@@ -1,0 +1,46 @@
+{
+  "name": "Alcovia Reward Rule Prototype (n8n-first)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "focus-success-reward",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "alcovia-reward-prototype"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Reward rule prototype (n8n-first approach) ────────────────────────────\n// This workflow implements the same streak/coins logic that later migrated into\n// server/src/services/rewardService.ts. It shows how we prototype logic in n8n\n// before hardening it in Express.\n//\n// Inputs expected in webhook body:\n//   sessionId, studentId, actualDuration (seconds), startedAt (ISO 8601)\n//\n// This implementation uses static data as a stand-in for the database — in the\n// real migration this was replaced by the authoritative SQL recompute in\n// rewardService.processRewards.\n\nconst body = $input.first().json.body ?? $input.first().json;\nconst { sessionId, studentId, actualDuration, startedAt } = body;\n\nconst COINS_PER_SESSION = 50;\n\nfunction dateOnly(iso) {\n  return iso ? iso.split('T')[0] : null;\n}\n\nconst state = $getWorkflowStaticData('global');\nif (!state.rewards) state.rewards = {};\nif (!state.rewards[studentId]) {\n  state.rewards[studentId] = { coins: 0, streak: 0, lastDate: null, todayMinutes: 0 };\n}\n\nconst r = state.rewards[studentId];\nconst today = dateOnly(new Date().toISOString());\nconst sessionDate = dateOnly(startedAt);\n\n// Guard: only reward once per session\nif (!state.rewardedSessions) state.rewardedSessions = {};\nif (state.rewardedSessions[sessionId]) {\n  return [{ json: { ok: true, alreadyRewarded: true, rewards: r } }];\n}\nstate.rewardedSessions[sessionId] = true;\n\n// Coins (50 per session, same as the Express implementation)\nr.coins += COINS_PER_SESSION;\n\n// Today's minutes\nconst minutes = Math.floor((actualDuration ?? 0) / 60);\nif (sessionDate === today) r.todayMinutes += minutes;\nelse r.todayMinutes = minutes;\n\n// Streak\nif (!r.lastDate) {\n  r.streak = 1;\n} else {\n  const diff = Math.round((new Date(sessionDate) - new Date(r.lastDate)) / 86400000);\n  if (diff === 1) r.streak += 1;\n  else if (diff > 1) r.streak = 1;\n  // diff === 0: same day, streak unchanged\n}\nr.lastDate = sessionDate;\n\nreturn [{ json: {\n  ok: true,\n  sessionId,\n  studentId,\n  rewards: { ...r },\n  message: `Streak now ${r.streak} day${r.streak !== 1 ? 's' : ''}, +${COINS_PER_SESSION} coins.`\n} }];\n"
+      },
+      "id": "node-compute-reward",
+      "name": "Compute Reward",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Compute Reward", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "alcovia-reward-prototype",
+  "tags": [{ "name": "prototype" }]
+}
