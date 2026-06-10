@@ -150,7 +150,8 @@ class SyncEngine {
         ]
       );
 
-      // Reconcile canonical server task states into local DB using Lamport LWW
+      // Reconcile canonical server task states into local DB.
+      // Merge rule: delete-wins first, then Lamport LWW — mirrors mergeService.ts.
       for (const serverTask of data.tasks) {
         await db.runAsync(
           `INSERT INTO task_states
@@ -158,24 +159,32 @@ class SyncEngine {
            VALUES (?, ?, ?, ?, ?, ?, 1)
            ON CONFLICT(task_id, student_id) DO UPDATE SET
              status = CASE
+               WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.status
+               WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.status
                WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.status
                WHEN excluded.lamport_clock = task_states.lamport_clock
                 AND excluded.device_id > task_states.device_id THEN excluded.status
                ELSE task_states.status
              END,
              lamport_clock = CASE
+               WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.lamport_clock
+               WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.lamport_clock
                WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.lamport_clock
                WHEN excluded.lamport_clock = task_states.lamport_clock
                 AND excluded.device_id > task_states.device_id THEN excluded.lamport_clock
                ELSE task_states.lamport_clock
              END,
              device_id = CASE
+               WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.device_id
+               WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.device_id
                WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.device_id
                WHEN excluded.lamport_clock = task_states.lamport_clock
                 AND excluded.device_id > task_states.device_id THEN excluded.device_id
                ELSE task_states.device_id
              END,
              deleted_at_clock = CASE
+               WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.deleted_at_clock
+               WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.deleted_at_clock
                WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.deleted_at_clock
                WHEN excluded.lamport_clock = task_states.lamport_clock
                 AND excluded.device_id > task_states.device_id THEN excluded.deleted_at_clock

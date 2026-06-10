@@ -28,12 +28,18 @@ export function compareOps(
 
 /**
  * Given two conflicting task state ops, return the winner.
- * The loser's edit is silently discarded — both devices compute the same winner.
+ * Delete-wins: a tombstone (deletedAtClock != null) beats any concurrent edit,
+ * regardless of Lamport clock — a deleted task should never silently resurrect.
+ * When both sides are edits, higher Lamport clock wins (with deviceId tie-break).
  */
 export function resolveTaskConflict(
-  a: { lamportClock: number; deviceId: string; status: string },
-  b: { lamportClock: number; deviceId: string; status: string }
+  a: { lamportClock: number; deviceId: string; status: string; deletedAtClock?: number | null },
+  b: { lamportClock: number; deviceId: string; status: string; deletedAtClock?: number | null }
 ): typeof a {
+  const aDeleted = a.deletedAtClock != null;
+  const bDeleted = b.deletedAtClock != null;
+  if (aDeleted && !bDeleted) return a;
+  if (bDeleted && !aDeleted) return b;
   return compareOps(a, b) >= 0 ? a : b;
 }
 

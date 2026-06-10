@@ -74,33 +74,46 @@ function applyTaskStatusOp(op: SyncOp): void {
   const db = getDb();
   const p = op.payload as TaskStatusPayload;
 
-  // Lamport LWW encoded directly in SQL so it runs atomically and is deterministic.
-  // Higher clock wins. On a tie, the lexicographically higher deviceId wins.
-  // Both conditions are checked in parallel in all CASE expressions so they stay in sync.
+  // Merge rule (encoded in SQL for atomicity):
+  //   1. Delete-wins: if either side is a tombstone (deleted_at_clock IS NOT NULL),
+  //      the tombstone wins regardless of Lamport clock.
+  //   2. Otherwise Lamport LWW: higher clock wins; deviceId breaks ties.
+  // All CASE expressions use the same condition so they always move together.
   db.prepare(`
     INSERT INTO task_states
       (task_id, student_id, status, lamport_clock, device_id, deleted_at_clock, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(task_id, student_id) DO UPDATE SET
       status = CASE
+        -- incoming is tombstone, current is not → incoming wins
+        WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.status
+        -- current is tombstone, incoming is not → current wins
+        WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.status
+        -- both edits (or both tombstones): Lamport LWW
         WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.status
         WHEN excluded.lamport_clock = task_states.lamport_clock
          AND excluded.device_id > task_states.device_id   THEN excluded.status
         ELSE task_states.status
       END,
       lamport_clock = CASE
+        WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.lamport_clock
+        WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.lamport_clock
         WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.lamport_clock
         WHEN excluded.lamport_clock = task_states.lamport_clock
          AND excluded.device_id > task_states.device_id   THEN excluded.lamport_clock
         ELSE task_states.lamport_clock
       END,
       device_id = CASE
+        WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.device_id
+        WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.device_id
         WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.device_id
         WHEN excluded.lamport_clock = task_states.lamport_clock
          AND excluded.device_id > task_states.device_id   THEN excluded.device_id
         ELSE task_states.device_id
       END,
       deleted_at_clock = CASE
+        WHEN excluded.deleted_at_clock IS NOT NULL AND task_states.deleted_at_clock IS NULL THEN excluded.deleted_at_clock
+        WHEN task_states.deleted_at_clock IS NOT NULL AND excluded.deleted_at_clock IS NULL THEN task_states.deleted_at_clock
         WHEN excluded.lamport_clock > task_states.lamport_clock THEN excluded.deleted_at_clock
         WHEN excluded.lamport_clock = task_states.lamport_clock
          AND excluded.device_id > task_states.device_id   THEN excluded.deleted_at_clock

@@ -16,6 +16,7 @@ export interface TaskRow {
   lamportClock: number;
   deviceId: string;
   synced: boolean;
+  deletedAtClock: number | null;
 }
 
 interface SyllabusStore {
@@ -25,14 +26,17 @@ interface SyllabusStore {
 
   loadTasks: () => Promise<void>;
   updateTaskStatus: (taskId: string, newStatus: TaskStatus) => Promise<void>;
+  deleteTask: (taskId: string) => Promise<void>;
   refreshAfterSync: () => Promise<void>;
 }
 
 // ── Progress rollup ───────────────────────────────────────────────────────────
-// chapter % = done / total tasks
+// chapter % = done / total tasks (tombstoned tasks excluded)
 // subject % = average of its chapter percents
 // Both are computed in pure JS so they update instantly offline.
 function computeProgress(tasks: TaskRow[]): SubjectProgress[] {
+  // Tombstoned tasks don't count toward totals or completions
+  tasks = tasks.filter((t) => t.deletedAtClock == null);
   const subjectMap = new Map<string, SubjectProgress>();
 
   for (const task of tasks) {
@@ -93,8 +97,9 @@ export const useSyllabusStore = create<SyllabusStore>((set, get) => ({
         lamport_clock: number;
         device_id: string;
         synced: number;
+        deleted_at_clock: number | null;
       }>(
-        `SELECT task_id, status, lamport_clock, device_id, synced
+        `SELECT task_id, status, lamport_clock, device_id, synced, deleted_at_clock
          FROM task_states WHERE student_id = ?`,
         [STUDENT_ID]
       );
@@ -114,6 +119,7 @@ export const useSyllabusStore = create<SyllabusStore>((set, get) => ({
           lamportClock: row?.lamport_clock ?? 0,
           deviceId: row?.device_id ?? '',
           synced: (row?.synced ?? 0) === 1,
+          deletedAtClock: row?.deleted_at_clock ?? null,
         };
       });
 
@@ -167,6 +173,43 @@ export const useSyllabusStore = create<SyllabusStore>((set, get) => ({
     set({ tasks: updated, subjects: computeProgress(updated) });
 
     // Background sync (best-effort; failure is fine)
+    syncEngine.sync().catch(() => {});
+  },
+
+  /**
+   * Delete a task by writing a tombstone op (deletedAtClock = current Lamport).
+   * Delete-wins: this tombstone beats any concurrent edit on another device.
+   */
+  deleteTask: async (taskId: string) => {
+    const db = getDb();
+    const deviceId = getDeviceId();
+    const lamportClock = await incrementAndGetLamportClock();
+
+    await db.runAsync(
+      `UPDATE task_states
+       SET status = 'not_started', lamport_clock = ?, device_id = ?,
+           deleted_at_clock = ?, synced = 0
+       WHERE task_id = ? AND student_id = ?`,
+      [lamportClock, deviceId, lamportClock, taskId, STUDENT_ID]
+    );
+
+    await syncEngine.enqueueOp({
+      type: 'TASK_STATUS',
+      entityId: taskId,
+      payload: {
+        taskId,
+        status: 'not_started',
+        deletedAtClock: lamportClock,
+      },
+    });
+
+    const updated = get().tasks.map((t) =>
+      t.taskId === taskId
+        ? { ...t, lamportClock, deviceId, deletedAtClock: lamportClock, synced: false }
+        : t
+    );
+    set({ tasks: updated, subjects: computeProgress(updated) });
+
     syncEngine.sync().catch(() => {});
   },
 

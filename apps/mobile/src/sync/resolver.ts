@@ -73,11 +73,25 @@ async function applyTaskStatusOp(op: SyncOp): Promise<void> {
     return;
   }
 
-  // Lamport LWW: higher clock wins; tie-break by lexicographically higher deviceId
-  const incoming = { lamportClock: op.lamportClock, deviceId: op.deviceId };
-  const current = { lamportClock: existing.lamport_clock, deviceId: existing.device_id };
+  // Merge rule: delete-wins, then Lamport LWW (same logic as server mergeService)
+  const incoming = {
+    lamportClock: op.lamportClock,
+    deviceId: op.deviceId,
+    status: p.status,
+    deletedAtClock: p.deletedAtClock ?? null,
+  };
+  const current = {
+    lamportClock: existing.lamport_clock,
+    deviceId: existing.device_id,
+    status: '' as string,
+    deletedAtClock: existing.deleted_at_clock,
+  };
 
-  if (compareOps(incoming, current) > 0) {
+  const incomingWins =
+    (incoming.deletedAtClock != null && current.deletedAtClock == null) ||
+    (current.deletedAtClock == null && incoming.deletedAtClock == null && compareOps(incoming, current) > 0);
+
+  if (incomingWins) {
     await db.runAsync(
       `UPDATE task_states
        SET status = ?, lamport_clock = ?, device_id = ?, deleted_at_clock = ?, synced = 1
