@@ -1,5 +1,5 @@
 import { SyncOp, TaskStatusPayload, SessionPayload, compareOps } from '@alcovia/shared';
-import { getDb, updateVectorClock } from '../db/client';
+import { getDb, updateVectorClock, bumpLamportTo } from '../db/client';
 
 /**
  * Apply a list of remote ops received from the server to the local SQLite database.
@@ -7,11 +7,16 @@ import { getDb, updateVectorClock } from '../db/client';
  * All writes are idempotent — replaying the same ops produces the same state.
  */
 export async function applyRemoteOps(ops: SyncOp[]): Promise<void> {
+  if (ops.length === 0) return;
   const sorted = [...ops].sort((a, b) => compareOps(a, b));
   for (const op of sorted) {
     await applyOp(op);
     await updateVectorClock(op.deviceId, op.lamportClock);
   }
+  // Lamport receive rule: advance our clock past the highest we just observed so
+  // any subsequent local edit is causally after everything we've seen.
+  const maxReceived = Math.max(...ops.map((o) => o.lamportClock));
+  await bumpLamportTo(maxReceived);
 }
 
 async function applyOp(op: SyncOp): Promise<void> {

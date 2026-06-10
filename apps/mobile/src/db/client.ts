@@ -58,6 +58,20 @@ export async function incrementAndGetLamportClock(): Promise<number> {
   return next;
 }
 
+/**
+ * Lamport receive rule: pull the local counter up to at least `received`.
+ * Called after applying remote ops so any subsequent local edit gets a clock
+ * higher than everything this device has observed — i.e. genuine causal
+ * "last write wins", not just "whoever did more local ops".
+ */
+export async function bumpLamportTo(received: number): Promise<void> {
+  const db = getDb();
+  await db.runAsync(
+    `UPDATE device_meta SET value = ? WHERE key = 'lamportCounter' AND CAST(value AS INTEGER) < ?`,
+    [String(received), received]
+  );
+}
+
 export async function getVectorClock(): Promise<Record<string, number>> {
   const db = getDb();
   const rows = await db.getAllAsync<{ device_id: string; max_lamport_seen: number }>(
