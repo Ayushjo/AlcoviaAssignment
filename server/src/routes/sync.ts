@@ -8,6 +8,7 @@ import {
 } from '../services/mergeService';
 import { processRewards, getRewardState } from '../services/rewardService';
 import { fireSessionNotificationIfNeeded } from '../services/n8nService';
+import { getDb } from '../db/schema';
 
 const router = Router();
 
@@ -45,8 +46,19 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const rewards = getRewardState(studentId);
 
     // 4. Fire n8n notifications asynchronously — don't block the sync response.
-    //    Each call checks notification_sent internally so concurrent requests are safe.
-    for (const sessionId of newSuccessSessionIds) {
+    //    We attempt every session that is rewarded but not yet notified (not just
+    //    new ones). This makes notifications retryable: if a webhook call failed and
+    //    rolled back notification_sent to 0, the next sync will pick it up again.
+    //    Exactly-once is preserved by the atomic claim in fireSessionNotificationIfNeeded
+    //    (server layer) and by static-data dedup inside the n8n workflow (n8n layer).
+    const pendingNotifications = getDb().prepare(`
+      SELECT id FROM sessions
+      WHERE student_id = ? AND status = 'completed'
+        AND reward_granted = 1 AND notification_sent = 0
+    `).all(studentId) as Array<{ id: string }>;
+
+    const toNotify = new Set([...newSuccessSessionIds, ...pendingNotifications.map((r) => r.id)]);
+    for (const sessionId of toNotify) {
       fireSessionNotificationIfNeeded(sessionId, studentId, {
         coins: rewards.coins,
         focusStreak: rewards.focusStreak,
