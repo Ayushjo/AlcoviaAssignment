@@ -140,6 +140,27 @@ export default function DevPanelScreen() {
     setScenarioStatus(`Tombstoned: ${t.taskId.slice(-8)}. Concurrent edits on other device will lose (delete-wins).`);
   }
 
+  async function scenarioSimulateReply() {
+    // Two-way reply loop: find the most recent completed session and send a 'done' reply
+    // The server records it; it reconciles across devices like any other op.
+    setScenarioStatus('Looking for last completed session…');
+    try {
+      const resp = await fetch(`${SERVER_URL}/api/sessions?studentId=${STUDENT_ID}`);
+      if (!resp.ok) { setScenarioStatus('Could not fetch sessions.'); return; }
+      const data = await resp.json() as { sessions: Array<{ id: string; status: string }> };
+      const completed = data.sessions.find((s) => s.status === 'completed');
+      if (!completed) { setScenarioStatus('No completed sessions found — complete one first.'); return; }
+      const reply = await fetch(`${SERVER_URL}/api/notifications/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: completed.id, studentId: STUDENT_ID, action: 'done' }),
+      });
+      const result = await reply.json() as { ok: boolean; action: string };
+      setScenarioStatus(`Reply sent: action=${result.action} for session …${completed.id.slice(-10)}. Both devices get this on next sync.`);
+      await forceSync();
+    } catch (e) { setScenarioStatus(`Error: ${String(e)}`); }
+  }
+
   // ── Sync colour ───────────────────────────────────────────────────────────
 
   const syncColor =
@@ -265,6 +286,7 @@ export default function DevPanelScreen() {
           <Btn label="Fail Session (give_up)" color="#EF4444" onPress={scenarioFailSession} />
           <Btn label="Toggle First Active Task" color="#6C63FF" onPress={scenarioToggleFirstTask} />
           <Btn label="Delete First Task (tombstone)" color="#F97316" onPress={scenarioDeleteFirstTask} />
+          <Btn label="↩ Simulate Reply (done)" color="#8B5CF6" onPress={scenarioSimulateReply} />
           <Btn
             label={isOnline ? 'Go Offline (stage conflict)' : 'Go Online + Sync'}
             color={isOnline ? '#94A3B8' : '#22C55E'}
