@@ -6,16 +6,17 @@ import { CLIENT_SCHEMA_SQL } from './schema';
 let _db: SQLite.SQLiteDatabase | null = null;
 
 export function getDb(): SQLite.SQLiteDatabase {
-  if (_db) return _db;
-  const deviceId = getDeviceId();
-  // Each device has its own isolated SQLite database
-  _db = SQLite.openDatabaseSync(`alcovia-device-${deviceId}.db`);
+  if (!_db) throw new Error('DB not initialised — call initDb() first');
   return _db;
 }
 
 export async function initDb(): Promise<void> {
-  const db = getDb();
   const deviceId = getDeviceId();
+  // Use openDatabaseAsync so the WASM worker handshake runs on the event loop
+  // instead of a blocking spin-loop (Atomics.pause busy-wait) that would
+  // deadlock on the main browser thread and throw "Sync operation timeout".
+  _db = await SQLite.openDatabaseAsync(`alcovia-device-${deviceId}.db`);
+  const db = _db;
 
   // Create all tables
   await db.execAsync(CLIENT_SCHEMA_SQL);
