@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="theme-color" content="#6C63FF" />
+    <title>AlcoviaSync</title>
+    <!--
+      Register a service worker that adds Cross-Origin-Opener-Policy and
+      Cross-Origin-Embedder-Policy headers to every response. This makes the
+      page "cross-origin isolated", which is required for SharedArrayBuffer
+      (used internally by expo-sqlite's WASM/wa-sqlite backend on web).
+
+      On first load the SW is registered and the page reloads once.
+      On subsequent loads window.crossOriginIsolated is true and no reload happens.
+    -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        if (!window.crossOriginIsolated) {
+          navigator.serviceWorker
+            .register('/coi-serviceworker.js')
+            .then(function () {
+              // Only reload if we don't already have a controller (first install)
+              if (!navigator.serviceWorker.controller) {
+                window.location.reload();
+              }
+            })
+            .catch(function (err) {
+              console.warn('[coi-sw] Service worker registration failed:', err);
+            });
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
