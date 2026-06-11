@@ -70,16 +70,16 @@ response header.
 # Step 1 — build the web bundle (takes ~30 s, run from repo root)
 npm run build:web
 
-# Step 2 — serve with COOP/COEP headers on port 8083
+# Step 2 — serve with COOP/COEP headers on port 8085
 npm run serve:web
-# ✓  Device A → http://localhost:8083?device=A
-# ✓  Device B → http://localhost:8083?device=B
+# ✓  Device A → http://localhost:8085?device=A
+# ✓  Device B → http://localhost:8085?device=B
 ```
 
 Open two browser tabs (regular + incognito, or two different browser profiles) at:
-- `http://localhost:8083?device=A`
-- `http://localhost:8083?device=B`
-- `http://localhost:8083?device=C` (optional third device)
+- `http://localhost:8085?device=A`
+- `http://localhost:8085?device=B`
+- `http://localhost:8085?device=C` (optional third device)
 
 Each tab has its own isolated SQLite database. They simulate separate physical devices.
 

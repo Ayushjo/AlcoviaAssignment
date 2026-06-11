@@ -6,7 +6,7 @@
  * Usage:
  *   1. Build:  npx expo export --platform web     (from apps/mobile/)
  *   2. Serve:  node serve-web.js
- *   3. Open:   http://localhost:8083?device=A  and  ?device=B
+ *   3. Open:   http://localhost:8085?device=A  and  ?device=B
  */
 const http = require('http');
 const fs   = require('fs');
